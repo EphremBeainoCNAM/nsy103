@@ -1,5 +1,5 @@
 #define ALTMAX 20000
-#define ALTMIN 0
+#define ALTMIN 1
 
 #define VITMAX 1000
 #define VITMIN 200

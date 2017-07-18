@@ -1,4 +1,15 @@
 #include <math.h>
+#import <stdio.h>
+#import <stdlib.h>
+#import <unistd.h>
+#import <time.h>
+#import <string.h>
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<netinet/in.h>
+#include<fcntl.h>
+#include <arpa/inet.h>
+#import <pthread/pthread.h>
 
 #include "avion.h"
 
@@ -38,12 +49,6 @@ void envoyer_caracteristiques() {
 // initialise aléatoirement les paramétres initiaux de l'avion
 
 void initialiser_avion() {
-    // initialisation al�atoire du compteur aléatoire
-    int seed;
-    time(&seed);
-    srandom(seed);
-
-    // intialisation des paramétres de l'avion
     coord.x = 1000 + random() % 1000;
     coord.y = 1000 + random() % 1000;
     coord.altitude = 900 + random() % 100;
@@ -51,11 +56,9 @@ void initialiser_avion() {
     dep.cap = random() % 360;
     dep.vitesse = 600 + random() % 200;
 
-    // initialisation du numero de l'avion : chaine de 5 caract�res 
-    // formée de 2 lettres puis 3 chiffres
     numero_vol[0] = (random() % 26) + 'A';
     numero_vol[1] = (random() % 26) + 'A';
-    sprintf(&numero_vol[2], "%03d", (random() % 999) + 1);
+    sprintf(&numero_vol[2], "%03ld", (random() % 999) + 1);
     numero_vol[5] = 0;
 }
 
@@ -154,18 +157,101 @@ void se_deplacer() {
     }
 }
 
-int main() {
-    // on initialise l'avion
-    initialiser_avion();
+//int main() {
+//    // on initialise l'avion
+//    initialiser_avion();
+//
+//    afficher_donnees();
+//    // on quitte si on arrive à pas contacter le gestionnaire de vols
+//    if (!ouvrir_communication()) {
+//        printf("Impossible de contacter le gestionnaire de vols\n");
+//        exit(1);
+//    }
+//
+//    // on se déplace une fois toutes les initialisations faites
+//    se_deplacer();
+    
+    
+//}
+#define DESTPORT 3503
 
-    afficher_donnees();
-    // on quitte si on arrive à pas contacter le gestionnaire de vols
-    if (!ouvrir_communication()) {
-        printf("Impossible de contacter le gestionnaire de vols\n");
-        exit(1);
+int sockfd;
+char bufferRead[5];
+
+void* PLANEReadFromServer(void *sender){
+    while(1){
+        int bytes_read = (int)read(sockfd, bufferRead, 5);
+        if(bytes_read>0){
+            char command = bufferRead[4];
+            int *bufferInt = (int*)bufferRead;
+            int value = bufferInt[0];
+            if(command==1){//change cap
+                changer_cap(value);
+            }else if(command==2){//change speed
+                changer_vitesse(value);
+            }else if(command==3){
+                changer_altitude(value);
+            }else{
+                //Not supported in this version or timeout or another shiat.
+            }
+        }
     }
+    return 0;
+}
+int main(){
+    int seed;
+    time((time_t*)&seed);
+    srandom(seed);
+    initialiser_avion();
+    
+    struct sockaddr_in dest_addr;
+    sockfd = socket(AF_INET,SOCK_STREAM,0);
+    
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(DESTPORT);
+    dest_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    // on se déplace une fois toutes les initialisations faites
-    se_deplacer();
+    int x =1;
+    
+    
+    while(x){
+        x= connect(sockfd,(struct sockaddr*)&dest_addr, sizeof(struct sockaddr));
+        if(x){
+            printf("Failed to connect, retrying in 1s\n");
+            sleep(1);
+        }else{
+            printf("Connected to SACA\n");
+            break;
+        }
+    }
+    
+    pthread_t cThread;
+    if(pthread_create(&cThread, NULL, PLANEReadFromServer, NULL)){
+        perror("ERROR creating thread.");
+    }
+    
+    char *buf=(char*)malloc(sizeof(char)*100);
+    int index = (int)strlen(numero_vol);
+    strcpy(buf, numero_vol);
+    buf[index]='*';//separator for server
+    index++;
+    while(1){
+        memset(buf+index, 0, 100-index);
+        calcul_deplacement();
+        int *bufferInt = (int*)(buf+8);
+        bufferInt[0]=coord.x;
+        bufferInt[1]=coord.y;
+        bufferInt[2]=coord.altitude;
+        bufferInt[3]=dep.vitesse;
+        bufferInt[4]=dep.cap;
+        
+        write(sockfd, buf, 100);
+        sleep(1);
+    }
+    free(buf);
+    disconnectx(sockfd, 0, 0);
+    close(sockfd);
+    printf("Client Dying.....\n");
+    return 0;
 }
 
